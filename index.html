@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SmartShoe order planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --turf:#1E4D3A; --turf-2:#2C6A51; --chalk:#F5F8F5; --paper:#FFFFFF; --ink:#16211C;
+  --muted:#5D6E66; --line:#D5DED9; --signal:#E8A317; --loss:#B33A2E; --gain:#1F7A4D;
+  --field:#EEF3F0;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --turf:#5FB58C; --turf-2:#7BC9A3; --chalk:#101814; --paper:#17221D; --ink:#E6EEE9;
+    --muted:#98AAA1; --line:#2B3A33; --signal:#F2B640; --loss:#E2705F; --gain:#62C08F; --field:#1D2A24;
+  }
+}
+:root[data-theme="dark"]{
+  --turf:#5FB58C; --turf-2:#7BC9A3; --chalk:#101814; --paper:#17221D; --ink:#E6EEE9;
+  --muted:#98AAA1; --line:#2B3A33; --signal:#F2B640; --loss:#E2705F; --gain:#62C08F; --field:#1D2A24;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--chalk);color:var(--ink);font:400 15px/1.5 "Barlow",system-ui,-apple-system,"Segoe UI",sans-serif}
+h1,h2,h3,.num{font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif}
+h1{font-size:2rem;line-height:1.05;margin:0 0 .25rem;font-weight:700;letter-spacing:.01em}
+h2{font-size:1.35rem;margin:0 0 .6rem;font-weight:600}
+h3{font-size:1.05rem;margin:0;font-weight:600}
+main{max-width:860px;margin:0 auto;padding:1rem 1rem 3rem}
+p{margin:.3rem 0}
+.note{color:var(--muted);font-size:.88rem}
+.assume{display:inline-block;background:var(--field);border-left:3px solid var(--signal);padding:.45rem .7rem;font-size:.88rem;margin:.5rem 0 0}
+section{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:1rem;margin-top:1rem}
+
+/* Scoreboard */
+.board{background:var(--turf);color:#fff;border:none;border-radius:6px;padding:1rem;margin-top:1rem;position:relative;overflow:hidden}
+.board::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(12.5% - 1px),rgba(255,255,255,.08) calc(12.5% - 1px) 12.5%);pointer-events:none}
+:root[data-theme="dark"] .board,:root:not([data-theme="light"]) .board{color:#fff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .board{background:#1B3E2F}}
+:root[data-theme="dark"] .board{background:#1B3E2F}
+.board-top{display:flex;flex-wrap:wrap;gap:1rem 2rem;align-items:flex-end;position:relative;z-index:1}
+.profit{font-size:3.2rem;line-height:1;font-weight:700}
+.profit.neg{color:#FFB4A8}
+.kpi{min-width:6.5rem}
+.kpi .num{font-size:1.5rem;font-weight:600;line-height:1.1}
+.kpi small,.profit-label{font-size:.82rem;opacity:.82;display:block}
+.late{color:#FFD27A}
+
+/* Line */
+.line{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:1rem;position:relative;z-index:1}
+.st{background:rgba(255,255,255,.1);border-radius:4px;padding:.55rem .5rem;border:2px solid transparent}
+.st.bn{border-color:var(--signal);background:rgba(232,163,23,.18)}
+.st .nm{font-size:.82rem;opacity:.85}
+.st .cap{font-family:"Barlow Condensed",sans-serif;font-size:1.35rem;font-weight:600}
+.st .bar{height:6px;background:rgba(255,255,255,.2);border-radius:3px;margin:.3rem 0;overflow:hidden}
+.st .bar i{display:block;height:100%;background:#fff}
+.st.bn .bar i{background:var(--signal)}
+.st .who{font-size:.78rem;opacity:.85;min-height:1.1em}
+.bn-tag{font-size:.75rem;color:var(--signal);font-weight:600}
+
+/* Controls */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem 1rem}
+label.f{display:flex;flex-direction:column;gap:.2rem;font-size:.86rem;color:var(--muted)}
+input[type=number],select{font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:4px;padding:.45rem .5rem;width:100%;min-height:40px}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.seg{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{flex:1;border:0;background:var(--field);color:var(--ink);font:inherit;padding:.45rem .3rem;cursor:pointer;min-height:40px}
+.seg button[aria-pressed="true"]{background:var(--turf);color:#fff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .seg button[aria-pressed="true"]{color:#0F1A15}}
+:root[data-theme="dark"] .seg button[aria-pressed="true"]{color:#0F1A15}
+.chk{display:flex;gap:.5rem;align-items:center;font-size:.9rem;min-height:40px}
+.chk input{width:20px;height:20px;accent-color:var(--turf)}
+
+/* Pages */
+.sticky{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--chalk);padding:.6rem 0 .4rem;margin-top:.8rem;border-bottom:1px solid var(--line)}
+.mini{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;background:var(--turf);color:#fff;border-radius:6px;padding:.5rem .7rem}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .mini{background:#1B3E2F}}
+:root[data-theme="dark"] .mini{background:#1B3E2F}
+.mini small{display:block;font-size:.72rem;opacity:.8}
+.mini .num{font-size:1.2rem;font-weight:600;line-height:1.1}
+.mini .neg{color:#FFB4A8}.mini .late{color:#FFD27A}
+.tabs{display:flex;gap:.3rem;overflow-x:auto;margin-top:.5rem;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:1 0 auto;font:600 .9rem "Barlow",sans-serif;background:transparent;color:var(--muted);border:0;border-bottom:3px solid transparent;padding:.5rem .6rem;cursor:pointer;min-height:44px;white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--turf)}
+.tabs .tn{display:inline-grid;place-items:center;width:1.4rem;height:1.4rem;border-radius:50%;border:1.5px solid currentColor;font-size:.75rem;margin-right:.2rem}
+.page{display:none}.page.on{display:block}
+.pnav{display:flex;justify-content:space-between;gap:.6rem;margin-top:1.2rem}
+.board-sm{padding:.8rem}
+.tabs button:disabled{opacity:.45;cursor:not-allowed}
+.costline{margin:.7rem 0 0;padding:.5rem .7rem;background:var(--field);border-radius:4px;font-size:.92rem}
+.costline b{font-family:"Barlow Condensed",sans-serif;font-size:1.1rem}
+.cost{margin-left:auto;font-size:.88rem;color:var(--muted)}
+.worker.off .w-body{opacity:.45}
+.chk.inc{min-height:auto}
+.sched{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:1.4rem;align-items:start}
+@media (max-width:640px){.sched{grid-template-columns:1fr}}
+.rules{margin-top:.4rem}.rules td{padding:.35rem .3rem;font-size:.9rem}
+.dlv{display:flex;flex-direction:column;gap:.3rem;margin-top:.6rem}
+.dw{display:grid;grid-template-columns:3.6rem 1fr 4.6rem;gap:.5rem;align-items:center;font-size:.85rem}
+.dw .wk{color:var(--muted)}
+.dw .tr{height:22px;background:var(--field);border-radius:3px;overflow:hidden;position:relative}
+.dw .tr i{position:absolute;inset:0 auto 0 0;background:var(--turf-2);border-radius:3px}
+.dw .tr .box{position:absolute;inset:3px auto 3px 0;display:flex;align-items:center;padding-left:.4rem;font-size:.75rem;color:#fff;font-weight:600;white-space:nowrap}
+.dw .qt{text-align:right;font-variant-numeric:tabular-nums}
+.dw.late .tr i{background:var(--loss)}
+.dw.late .wk,.dw.late .qt{color:var(--loss);font-weight:600}
+.dw.idle .tr i{display:none}
+.dl-line{border-top:2px dashed var(--signal);margin:.25rem 0;position:relative;height:0}
+.dl-line span{position:absolute;right:0;top:-.75rem;background:var(--paper);padding:0 .3rem;font-size:.75rem;color:var(--signal);font-weight:600}
+.dlv-sum{margin-top:.7rem;font-size:.92rem}
+.dlv-sum.bad{color:var(--loss);font-weight:600}
+.stale{background:var(--field);border-left:3px solid var(--loss);padding:.5rem .7rem;font-size:.9rem;margin:1rem 0 0}
+/* Sliders */
+.slide{margin:.4rem 0 1rem}
+.slide-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+.slide-head label{font-weight:600}
+.slide-head .num{font-size:1.6rem;font-weight:600;color:var(--turf)}
+input[type=range]{width:100%;accent-color:var(--turf);height:32px;margin:.2rem 0}
+.slide-read{font-size:.9rem;color:var(--muted)}
+.slide-read b{color:var(--ink)}
+.slide-read .warn{color:var(--loss)}
+/* Workers */
+.worker{border-top:1px solid var(--line);padding:.8rem 0}
+.worker:first-of-type{border-top:0;padding-top:0}
+.w-head{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem}
+.w-head .tag{font-family:"Barlow Condensed",sans-serif;font-size:1.25rem;font-weight:600;min-width:3.2rem}
+.w-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.5rem}
+.exp{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin-top:.5rem}
+.exp label{font-size:.78rem;color:var(--muted);display:flex;flex-direction:column;gap:.15rem}
+.exp select.on{border-color:var(--turf);border-width:2px;font-weight:600}
+
+/* Buttons */
+.actions{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.8rem}
+.btn{font:600 .95rem "Barlow",sans-serif;border:0;border-radius:4px;padding:.65rem 1rem;cursor:pointer;min-height:44px}
+.btn.primary{background:var(--turf);color:#fff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn.primary{color:#0F1A15}}
+:root[data-theme="dark"] .btn.primary{color:#0F1A15}
+.btn.ghost{background:var(--field);color:var(--ink);border:1px solid var(--line)}
+.status{font-size:.88rem;color:var(--muted);margin-top:.5rem;min-height:1.2em}
+
+/* Tables */
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:.42rem .5rem;border-bottom:1px solid var(--line);white-space:nowrap}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+tr.total td{font-weight:600;border-top:2px solid var(--ink)}
+.neg{color:var(--loss)} .pos{color:var(--gain)}
+details summary{cursor:pointer;font-weight:600;font-family:"Barlow Condensed",sans-serif;font-size:1.2rem}
+@media (max-width:520px){
+  .profit{font-size:2.6rem}
+  .line{grid-template-columns:repeat(2,1fr)}
+  h1{font-size:1.7rem}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>SmartShoe order planner</h1>
+  <p class="note">A practice model of the AllStar football shoe order. Make your decisions page by page, then submit to see the results.</p>
+  <p class="assume">Every default here is an assumption, not a value from the simulation. Replace them with the numbers on your screen before trusting the result.</p>
+
+<div class="sticky">
+<nav class="tabs" role="tablist"><button role="tab" id="tab-0" data-go="0" aria-controls="page-0"><span class="tn">1</span> Materials</button><button role="tab" id="tab-1" data-go="1" aria-controls="page-1"><span class="tn">2</span> Workers</button><button role="tab" id="tab-2" data-go="2" aria-controls="page-2"><span class="tn">3</span> Schedule</button><button role="tab" id="tab-3" data-go="3" aria-controls="page-3"><span class="tn">4</span> Add-ons</button><button role="tab" id="tab-4" data-go="4" aria-controls="page-4"><span class="tn">5</span> Submit</button><button role="tab" id="tab-5" data-go="5" aria-controls="page-5" disabled><span class="tn">6</span> Results</button></nav>
+</div>
+<div class="page" data-page="0" id="page-0" role="tabpanel" aria-labelledby="tab-0">
+  <!-- Materials -->
+  <section>
+    <h2>Materials</h2>
+    <div class="slide">
+      <div class="slide-head"><label for="matCost">Material cost per unit</label><span class="num" id="v-cost">–</span></div>
+      <input type="range" id="matCost" step="0.5">
+      <div class="slide-read" id="r-quality"></div>
+    </div>
+    <div class="slide">
+      <div class="slide-head"><label for="matQty">Quantity ordered</label><span class="num" id="v-qty">–</span></div>
+      <input type="range" id="matQty" min="0" max="6000" step="50">
+      <label class="chk"><input type="checkbox" id="autoMat"> Size order to what the line can make by the deadline</label>
+    </div>
+    <p class="costline" id="c-mat"></p>
+    <div class="grid" style="margin-top:.6rem">
+      <label class="f">Buying method
+        <div class="seg" data-key="buying">
+          <button type="button" data-v="bulk">Bulk (buying group)</button>
+          <button type="button" data-v="jit">JIT</button>
+        </div>
+      </label>
+      <label class="f">Bulk discount (%)<input type="number" id="bulkDisc" step="1"></label>
+      <label class="f">Bulk holding cost per unit ($)<input type="number" id="hold" step="0.5"></label>
+    </div>
+    <details style="margin-top:.9rem">
+      <summary>How cost turns into quality and price</summary>
+      <p class="note">Quality rises in a straight line from the lowest to the highest cost. From 70% quality the client pays between the 70% and 100% prices; below 70% they pay the low-quality price. All of these are assumed.</p>
+      <div class="grid" style="margin-top:.5rem">
+        <label class="f">Lowest cost on slider ($)<input type="number" id="costMin" step="1"></label>
+        <label class="f">Highest cost on slider ($)<input type="number" id="costMax" step="1"></label>
+        <label class="f">Quality at lowest cost (%)<input type="number" id="qMin" step="1"></label>
+        <label class="f">Quality at highest cost (%)<input type="number" id="qMax" step="1"></label>
+        <label class="f">Price at 70% quality ($)<input type="number" id="p70" step="1"></label>
+        <label class="f">Price at 100% quality ($)<input type="number" id="p100" step="1"></label>
+        <label class="f">Price below 70% quality ($)<input type="number" id="pLow" step="1"></label>
+      </div>
+    </details>
+    <p class="note" style="margin-top:.6rem">JIT: you pay only for units you start. Bulk: you pay for every unit ordered, used or not.</p>
+  </section>
+
+<div class="pnav"><span></span><button class="btn primary" data-go="1">Next: Workers</button></div>
+</div>
+<div class="page" data-page="1" id="page-1" role="tabpanel" aria-labelledby="tab-1">
+  <!-- Workers -->
+  <section>
+    <h2>Workers and stations</h2>
+    <p class="note">Tick the people you want on the order, then choose their station. Unticked workers cost nothing. The highlighted score is the one in use.</p>
+    <p class="costline" id="c-team"></p>
+    <div id="workers"></div>
+  </section>
+
+  <!-- Training / speed -->
+  <section>
+    <h2>Training and speed</h2>
+    <div class="grid">
+      <label class="f">Training cost per worker ($)<input type="number" id="trCost" step="100"></label>
+      <label class="f">Experience gained from training<input type="number" id="trExp" step="1" min="0" max="4"></label>
+      <label class="f">Defect points removed by training<input type="number" id="trDef" step="0.5"></label>
+    </div>
+    <h3 style="margin-top:1rem">Units per hour at each experience level</h3>
+    <div class="grid" id="speeds" style="margin-top:.4rem"></div>
+  </section>
+
+<div class="pnav"><button class="btn ghost" data-go="0">Back</button><button class="btn primary" data-go="2">Next: Schedule</button></div>
+</div>
+<div class="page" data-page="2" id="page-2" role="tabpanel" aria-labelledby="tab-2">
+  <!-- Schedule -->
+  <section>
+    <h2>Schedule and delivery</h2>
+    <div class="sched">
+      <div class="sched-l">
+        <div class="slide">
+          <div class="slide-head"><label for="ot">Overtime hours per week</label><span class="num" id="v-ot">–</span></div>
+          <input type="range" id="ot" min="0" max="20" step="1">
+        </div>
+        <label class="f">Shipping
+          <div class="seg" data-key="ship">
+            <button type="button" data-v="batch">In batches</button>
+            <button type="button" data-v="once">All at once</button>
+          </div>
+        </label>
+        <p class="costline" id="c-sched"></p>
+        <h3 style="margin-top:1.1rem">Simulation rules</h3>
+        <table class="rules">
+          <tr><td>Regular hours</td><td class="r">40 per week</td></tr>
+          <tr><td>Overtime pay</td><td class="r">1.5× wage</td></tr>
+          <tr><td>Deadline</td><td class="r">Week 9</td></tr>
+          <tr><td>Late delivery</td><td class="r">−20% price per week</td></tr>
+        </table>
+      </div>
+      <div class="sched-r">
+        <h3>Delivery by week</h3>
+        <p class="note" id="d-sub"></p>
+        <div class="dlv" id="dlv" aria-live="polite"></div>
+        <p class="dlv-sum" id="d-sum"></p>
+      </div>
+    </div>
+  </section>
+
+<div class="pnav"><button class="btn ghost" data-go="1">Back</button><button class="btn primary" data-go="3">Next: Add-ons</button></div>
+</div>
+<div class="page" data-page="3" id="page-3" role="tabpanel" aria-labelledby="tab-3">
+  <!-- Market -->
+  <section>
+    <h2>Add-ons and overhead</h2>
+    <div class="grid">
+      <label class="f">Fixed overhead ($)<input type="number" id="fixed" step="500"></label>
+    </div>
+    <h3 style="margin-top:1rem">Features (embellishments)</h3>
+    <p class="note">Each feature's percentage is added to the base price. Rename them to match the screen.</p>
+    <div id="features"></div>
+    <p class="costline" id="c-feat"></p>
+    <h3 style="margin-top:1.2rem">Launch</h3>
+    <p class="note">Pick one. The price lift for $5k and $10k is assumed; change it if the screen says otherwise.</p>
+    <div id="launch"></div>
+    <p class="costline" id="c-launch"></p>
+    <h3 style="margin-top:1.2rem">Warranty</h3>
+    <p class="note">The price lift and cost per unit are assumed.</p>
+    <div id="warranty"></div>
+    <p class="costline" id="c-warr"></p>
+
+  </section>
+
+<div class="pnav"><button class="btn ghost" data-go="2">Back</button><button class="btn primary" data-go="4">Next: Submit</button></div>
+</div>
+<div class="page" data-page="4" id="page-4" role="tabpanel" aria-labelledby="tab-4">
+  <section>
+    <h2>Review and submit</h2>
+    <p class="note">Check your decisions. Results stay locked until you submit, as in the simulation.</p>
+    <div class="tw"><table id="t-review"></table></div>
+    <h3 style="margin-top:1.2rem">Costs you're committing to</h3>
+    <p class="note">Wages and overtime depend on how long production runs, so they show per week here. The full bill comes with the results.</p>
+    <div class="tw"><table id="t-costs"></table></div>
+    <label class="f" style="margin-top:1rem">Name this submission<input type="text" id="subName" style="font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:4px;padding:.45rem .5rem;min-height:40px"></label>
+    <div class="status" id="s-sub"></div>
+  </section>
+  <div class="pnav"><button class="btn ghost" data-go="3">Back</button><button class="btn primary" id="b-submit">Submit decisions</button></div>
+</div>
+<div class="page" data-page="5" id="page-5" role="tabpanel" aria-labelledby="tab-5">
+  <p class="stale" id="stale" hidden>You've changed decisions since this submission. These results are for the last submitted version. Submit again to update them.</p>
+  <!-- Scoreboard -->
+  <div class="board" aria-live="polite">
+    <div class="board-top">
+      <div>
+        <span class="profit-label">Profit from the order</span>
+        <div class="profit num" id="o-profit">–</div>
+      </div>
+      <div class="kpi"><span class="num" id="o-good">–</span><small>good units shipped</small></div>
+      <div class="kpi"><span class="num" id="o-def">–</span><small>line defect rate</small></div>
+      <div class="kpi"><span class="num" id="o-week">–</span><small>last unit finished</small></div>
+    </div>
+    <div class="line o-line"></div>
+  </div>
+
+  <!-- Breakdown -->
+  <section>
+    <h2>Where the money goes</h2>
+    <div class="tw"><table id="t-break"></table></div>
+    <div class="tw" style="margin-top:1rem"><table id="t-weeks"></table></div>
+  </section>
+
+  <section>
+    <h2>Does each option pay for itself?</h2>
+    <p class="note">Profit change from switching each option on (or to that level) with everything else as it is now.</p>
+    <div class="tw"><table id="t-pay"></table></div>
+  </section>
+  <!-- Scenarios -->
+  <section>
+    <h2>Your submissions</h2>
+    <p class="note" id="s-empty">Every submission is logged here so you can compare rounds.</p>
+    <div class="tw"><table id="t-scen"></table></div>
+  </section>
+  <!-- Optimise -->
+  <section>
+    <h2>Find the best setup</h2>
+    <p class="note">This reveals the answer under the current assumptions, so try your own decisions first.</p>
+    <p class="note">Tests every way of placing the six workers (including leaving people out) at each overtime level, with materials sized to what the line can make by the deadline. Your prices, costs and experience scores stay as you set them.</p>
+    <div class="actions">
+      <button class="btn primary" id="b-opt">Find best setup</button>
+      <button class="btn ghost" id="b-reset">Reset to defaults</button>
+    </div>
+    <div class="status" id="s-opt"></div>
+  </section>
+
+<div class="pnav"><button class="btn ghost" data-go="0">Edit decisions</button></div>
+</div>
+</main>
+
+<script>
+const STATIONS=['Preparation','Assembly','Completion','Inspection'];
+const DEFAULTS={
+  workers:[
+    {name:'$50',wage:50,def:1,exp:[3,5,5,3],at:2,train:false},
+    {name:'$40',wage:40,def:2,exp:[3,5,4,3],at:1,train:false},
+    {name:'$20',wage:20,def:3,exp:[4,3,3,4],at:3,train:false},
+    {name:'$19',wage:19,def:4,exp:[3,2,3,4],at:0,train:false},
+    {name:'$13',wage:13,def:5,exp:[4,2,2,3],at:3,train:false},
+    {name:'$10',wage:10,def:3,exp:[3,2,2,3],at:0,train:false}
+  ],
+  speed:[4,6,8,10,12],
+  buying:'bulk',autoMat:true,matQty:4800,
+  matCost:30,costMin:10,costMax:50,qMin:40,qMax:100,p70:80,p100:100,pLow:70,bulkDisc:10,hold:1,
+  hrs:40,ot:10,otMult:1.5,deadline:9,pen:20,ship:'batch',shipBatch:2340,shipOnce:1500,
+  fixed:18000,
+  trCost:2000,trExp:1,trDef:1,
+  features:[
+    {name:'Feature 1',on:true,cost:0.5,pct:3},
+    {name:'Feature 2',on:true,cost:1.5,pct:3},
+    {name:'Feature 3',on:true,cost:2.5,pct:5}
+  ],
+  launch:0,
+  launchOpts:[{cost:0,pct:0},{cost:5000,pct:2},{cost:10000,pct:3}],
+  warranty:'1',
+  warr:{'1':{pct:0,cost:0},'6':{pct:3,cost:1}}
+};
+const clone=o=>JSON.parse(JSON.stringify(o));
+let S=clone(DEFAULTS);
+let scenarios=[];
+let submitted=null, stale=false;
+const RULES={hrs:40,otMult:1.5,deadline:9,pen:20,shipBatch:2340,shipOnce:1500};
+try{const s=localStorage.getItem('ss-plan-v3');if(s)S=Object.assign(clone(DEFAULTS),JSON.parse(s));}catch(e){}
+Object.assign(S,RULES);
+try{const s=localStorage.getItem('ss-scen-v3');if(s)scenarios=JSON.parse(s)||[];}catch(e){}
+
+const $=id=>document.getElementById(id);
+const money=v=>(v<0?'−$':'$')+Math.round(Math.abs(v)).toLocaleString('en-US');
+const n0=v=>Math.round(v).toLocaleString('en-US');
+
+/* ---------- model ---------- */
+function workerStats(w,st,s){
+  let e=w.exp[st]; let d=w.def;
+  if(w.train){e=Math.min(5,e+s.trExp); d=Math.max(0,d-s.trDef);}
+  return {rate:s.speed[e-1], def:d/100};
+}
+function qualityPrice(s){
+  const span=(s.costMax-s.costMin)||1;
+  const t=Math.min(1,Math.max(0,(s.matCost-s.costMin)/span));
+  const q=s.qMin+t*(s.qMax-s.qMin);
+  const price=q>=70?s.p70+(Math.min(q,100)-70)/30*(s.p100-s.p70):+s.pLow;
+  return {q,price};
+}
+function model(s,assign,otOverride){
+  const at=assign||s.workers.map(w=>w.at);
+  const ot=otOverride!=null?otOverride:s.ot;
+  const cap=[0,0,0,0],dw=[0,0,0,0],who=[[],[],[],[]];
+  let wageHr=0,trainCost=0;
+  s.workers.forEach((w,i)=>{
+    const st=at[i]; if(st==null||st<0) return;
+    const ws=workerStats(w,st,s);
+    cap[st]+=ws.rate; dw[st]+=ws.rate*ws.def; who[st].push(w.name);
+    wageHr+=w.wage; if(w.train) trainCost+=s.trCost;
+  });
+  const rate=Math.min(...cap);
+  const out={cap,who,rate,valid:rate>0};
+  if(!out.valid) return out;
+  let yieldG=1; for(let i=0;i<4;i++) yieldG*=1-dw[i]/cap[i];
+  const wkCap=rate*(s.hrs+ot);
+  const matQty=s.autoMat?Math.min(6000,Math.floor(wkCap*s.deadline)):Math.min(6000,Math.max(0,s.matQty));
+  const qp=qualityPrice(s); const price=qp.price;
+  const feat=s.features.filter(f=>f.on);
+  const fpct=feat.reduce((a,f)=>a+ +f.pct,0), fcost=feat.reduce((a,f)=>a+ +f.cost,0);
+  const L=s.launchOpts[s.launch]||{cost:0,pct:0};
+  const Wr=s.warr[s.warranty]||{cost:0,pct:0};
+  const pctTotal=fpct+ +L.pct+ +Wr.pct;
+  const unitPrice=price*(1+pctTotal/100);
+  // weekly production
+  let left=matQty,week=0,started=0,revenue=0,base=0,otPay=0;const weeks=[];
+  while(left>0.5 && week<30){
+    week++;
+    const u=Math.min(left,wkCap); left-=u; started+=u;
+    const hoursNeeded=u/rate;
+    base+=wageHr*s.hrs;
+    const otUsed=Math.max(0,Math.min(ot,hoursNeeded-s.hrs));
+    otPay+=wageHr*s.otMult*otUsed;
+    weeks.push({w:week,u,good:u*yieldG});
+  }
+  const lastWeek=week;
+  const lateFactor=w=>Math.max(0,1-(s.pen/100)*Math.max(0,w-s.deadline));
+  weeks.forEach(x=>{
+    const f=s.ship==='batch'?lateFactor(x.w):lateFactor(lastWeek);
+    x.factor=f; x.rev=x.good*unitPrice*f; revenue+=x.rev;
+  });
+  const good=started*yieldG;
+  const jitCost=+s.matCost;
+  const bulkCost=jitCost*(1-s.bulkDisc/100)+ +s.hold;
+  const material=s.buying==='jit'?started*jitCost:matQty*bulkCost;
+  const featCost=started*fcost;
+  const launchCost=+L.cost;
+  const warrCost=good*(+Wr.cost);
+  const ship=s.ship==='batch'?s.shipBatch:s.shipOnce;
+  const profit=revenue-material-base-otPay-s.fixed-ship-trainCost-featCost-launchCost-warrCost;
+  const util=cap.map(c=>c?rate/c:0);
+  Object.assign(out,{yieldG,matQty,started,good,revenue,material,base,otPay,fixed:s.fixed,ship,quality:qp.q,basePrice:price,trainCost,featCost,launchCost,warrCost,pctTotal,profit,lastWeek,weeks,util,unitPrice,ot,unused:matQty-started});
+  return out;
+}
+
+/* ---------- render inputs ---------- */
+const numIds=['bulkDisc','hold','costMin','costMax','qMin','qMax','p70','p100','pLow','fixed','trCost','trExp','trDef'];
+function bindInputs(){
+  numIds.forEach(id=>{
+    const el=$(id); el.value=S[id];
+    el.oninput=()=>{const v=parseFloat(el.value);S[id]=isNaN(v)?0:v;update();};
+  });
+  const mc=$('matCost'); mc.min=S.costMin; mc.max=S.costMax; mc.value=S.matCost;
+  mc.oninput=()=>{S.matCost=parseFloat(mc.value);update();};
+  const ots=$('ot'); ots.value=S.ot; ots.oninput=()=>{S.ot=parseFloat(ots.value);update();};
+  const mq=$('matQty'); mq.value=S.matQty;
+  mq.oninput=()=>{S.matQty=parseFloat(mq.value);update();};
+  ['costMin','costMax'].forEach(id=>$(id).addEventListener('input',()=>{mc.min=S.costMin;mc.max=S.costMax;}));
+  $('autoMat').checked=S.autoMat;
+  $('autoMat').onchange=e=>{S.autoMat=e.target.checked;update();};
+  document.querySelectorAll('.seg').forEach(seg=>{
+    const key=seg.dataset.key;
+    seg.querySelectorAll('button').forEach(b=>{
+      b.setAttribute('aria-pressed',b.dataset.v===S[key]);
+      b.onclick=()=>{S[key]=b.dataset.v;seg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));update();};
+    });
+  });
+  renderWorkers(); renderFeatures(); renderSpeeds(); renderLaunch(); renderWarranty();
+}
+function renderWorkers(){
+  const box=$('workers'); box.innerHTML='';
+  S.workers.forEach((w,i)=>{
+    const inc=w.at!=null&&w.at>=0;
+    const d=document.createElement('div'); d.className='worker'+(inc?'':' off');
+    d.innerHTML=`
+      <div class="w-head">
+        <label class="chk inc"><input type="checkbox" data-k="inc" ${inc?'checked':''}> <span class="tag">${w.name}/hr</span></label>
+        <span class="cost" id="c-w${i}"></span>
+      </div>
+      <div class="w-body">
+      <div class="w-row">
+        <label class="f">Wage per hour ($)<input type="number" data-k="wage" value="${w.wage}" step="1"></label>
+        <label class="f">Defect rate (%)<input type="number" data-k="def" value="${w.def}" step="0.5"></label>
+        <label class="f">Works at
+          <select data-k="at" ${inc?'':'disabled'}>
+            ${STATIONS.map((s,j)=>`<option value="${j}" ${(inc?w.at:(w.prevAt??0))===j?'selected':''}>${s}</option>`).join('')}
+          </select></label>
+        <label class="chk"><input type="checkbox" data-k="train" ${w.train?'checked':''} ${inc?'':'disabled'}> Train</label>
+      </div>
+      <div class="exp">${STATIONS.map((s,j)=>`
+        <label>${s}<select data-e="${j}" class="${inc&&w.at===j?'on':''}" aria-label="${w.name} experience at ${s}">
+          ${[1,2,3,4,5].map(v=>`<option ${w.exp[j]===v?'selected':''}>${v}</option>`).join('')}
+        </select></label>`).join('')}</div>
+      </div>`;
+    d.querySelectorAll('[data-k]').forEach(el=>{
+      el.addEventListener(el.type==='checkbox'?'change':'input',()=>{
+        const k=el.dataset.k;
+        if(k==='inc'){
+          if(el.checked){w.at=w.prevAt??0;} else {w.prevAt=w.at;w.at=-1;w.train=false;}
+          renderWorkers(); update(); return;
+        }
+        if(k==='train') w.train=el.checked;
+        else if(k==='at'){w.at=parseInt(el.value);w.prevAt=w.at;d.querySelectorAll('[data-e]').forEach(x=>x.classList.toggle('on',+x.dataset.e===w.at));}
+        else {const v=parseFloat(el.value);w[k]=isNaN(v)?0:v;}
+        update();
+      });
+    });
+    d.querySelectorAll('[data-e]').forEach(el=>el.onchange=()=>{w.exp[+el.dataset.e]=parseInt(el.value);update();});
+    box.appendChild(d);
+  });
+}
+function renderFeatures(){
+  const box=$('features'); box.innerHTML='';
+  S.features.forEach(f=>{
+    const d=document.createElement('div'); d.className='w-row'; d.style.marginTop='.5rem';
+    d.innerHTML=`
+      <label class="f">Name<input type="text" value="${f.name}" style="font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:4px;padding:.45rem .5rem;min-height:40px"></label>
+      <label class="f">Cost per unit ($)<input type="number" data-k="cost" value="${f.cost}" step="0.05"></label>
+      <label class="f">Client pays more (%)<input type="number" data-k="pct" value="${f.pct}" step="0.5"></label>
+      <label class="chk"><input type="checkbox" ${f.on?'checked':''}> Include</label>`;
+    d.querySelector('input[type=text]').oninput=e=>{f.name=e.target.value;save();};
+    d.querySelectorAll('input[data-k]').forEach(el=>el.oninput=()=>{f[el.dataset.k]=parseFloat(el.value)||0;update();});
+    d.querySelector('input[type=checkbox]').onchange=e=>{f.on=e.target.checked;update();};
+    box.appendChild(d);
+  });
+}
+function renderLaunch(){
+  const box=$('launch');
+  box.innerHTML=`<div class="seg" style="margin-top:.4rem">${S.launchOpts.map((o,i)=>`<button type="button" aria-pressed="${S.launch===i}" data-i="${i}">${o.cost?money(o.cost):'None'}</button>`).join('')}</div>
+    <div class="grid" style="margin-top:.5rem">${S.launchOpts.map((o,i)=>i?`<label class="f">${money(o.cost)} launch: client pays more (%)<input type="number" data-p="${i}" value="${o.pct}" step="0.5"></label>`:'').join('')}</div>`;
+  box.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{S.launch=+b.dataset.i;renderLaunch();update();});
+  box.querySelectorAll('[data-p]').forEach(el=>el.oninput=()=>{S.launchOpts[+el.dataset.p].pct=parseFloat(el.value)||0;update();});
+}
+function renderWarranty(){
+  const box=$('warranty');
+  box.innerHTML=`<div class="seg" style="margin-top:.4rem">${['1','6'].map(k=>`<button type="button" aria-pressed="${S.warranty===k}" data-k="${k}">${k} month${k==='6'?'s':''}</button>`).join('')}</div>
+    <div class="grid" style="margin-top:.5rem">${['1','6'].map(k=>`<label class="f">${k} month: client pays more (%)<input type="number" data-w="${k}" data-f="pct" value="${S.warr[k].pct}" step="0.5"></label><label class="f">${k} month: cost per good unit ($)<input type="number" data-w="${k}" data-f="cost" value="${S.warr[k].cost}" step="0.1"></label>`).join('')}</div>`;
+  box.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{S.warranty=b.dataset.k;renderWarranty();update();});
+  box.querySelectorAll('[data-w]').forEach(el=>el.oninput=()=>{S.warr[el.dataset.w][el.dataset.f]=parseFloat(el.value)||0;update();});
+}
+function renderPay(S){
+  const base=model(S); if(!base.valid){$('t-pay').innerHTML='';return;}
+  const rows=[];
+  S.features.forEach((f,i)=>{
+    const t=clone(S); t.features[i].on=true; const on=model(t).profit;
+    t.features[i].on=false; const off=model(t).profit;
+    rows.push([f.name+` ($${f.cost} for +${f.pct}%)`,on-off]);
+  });
+  S.launchOpts.forEach((o,i)=>{ if(!i) return;
+    const t=clone(S); t.launch=i; const a=model(t).profit; t.launch=0; const b=model(t).profit;
+    rows.push([`${money(o.cost)} launch vs none`,a-b]);
+  });
+  {const t=clone(S); t.warranty='6'; const a=model(t).profit; t.warranty='1'; const b=model(t).profit;
+   rows.push(['6-month vs 1-month warranty',a-b]);}
+  $('t-pay').innerHTML='<tr><th>Option</th><th class="r">Profit change</th></tr>'+rows.map(x=>`<tr><td>${x[0]}</td><td class="r ${x[1]<0?'neg':'pos'}">${x[1]>=0?'+':''}${money(x[1])}</td></tr>`).join('');
+}
+function renderSpeeds(){
+  const box=$('speeds'); box.innerHTML='';
+  S.speed.forEach((v,i)=>{
+    const l=document.createElement('label'); l.className='f';
+    l.innerHTML=`Level ${i+1}<input type="number" value="${v}" step="0.5">`;
+    l.querySelector('input').oninput=e=>{S.speed[i]=parseFloat(e.target.value)||0;update();};
+    box.appendChild(l);
+  });
+}
+
+/* ---------- render outputs ---------- */
+function update(){
+  if(submitted){stale=true;$('stale').hidden=false;}
+  save();
+  const r=model(S);
+  const qp=qualityPrice(S);
+  $('v-cost').textContent='$'+(+S.matCost).toFixed(2);
+  $('r-quality').innerHTML=`Quality <b>${qp.q.toFixed(0)}%</b>, client pays <b>$${qp.price.toFixed(2)}</b> per shoe before add-ons`+(qp.q<70?' <span class="warn">(below 70%: low-quality price)</span>':'');
+  $('matQty').disabled=S.autoMat;
+  $('v-qty').textContent=n0(S.autoMat&&r.valid?r.matQty:S.matQty)+(S.autoMat?' auto':'');
+  if(S.autoMat&&r.valid) $('matQty').value=r.matQty;
+  renderReview(r);
+  renderCosts(r);
+  renderDelivery(r);
+}
+function renderDelivery(r){
+  $('v-ot').textContent=S.ot+' hrs';
+  const box=$('dlv');
+  if(!r.valid){box.innerHTML='';$('d-sub').textContent='';$('d-sum').textContent='Put at least one worker on every station to see the delivery plan.';$('d-sum').className='dlv-sum bad';return;}
+  const batch=S.ship==='batch';
+  $('d-sub').textContent=batch?'Each bar is one batch shipped that week.':'Everything is held and shipped in one go when the last shoe is finished.';
+  const last=r.lastWeek, span=Math.max(last,S.deadline);
+  const maxU=Math.max(...r.weeks.map(w=>w.u),1);
+  let html='';
+  for(let w=1;w<=span;w++){
+    const wk=r.weeks.find(x=>x.w===w);
+    const units=batch?(wk?wk.u:0):(w===last?r.started:0);
+    const late=units>0&&w>S.deadline;
+    const cut=Math.min(100,S.pen*Math.max(0,w-S.deadline));
+    const width=batch?units/maxU*100:(units?100:0);
+    const label=units?(late?`Late: −${cut}% price`:(batch?'Batch '+w:'Single shipment')):'';
+    html+=`<div class="dw ${late?'late':''} ${units?'':'idle'}"><span class="wk">Week ${w}</span><div class="tr"><i style="width:${width}%"></i><span class="box">${label}</span></div><span class="qt">${units?n0(units):'–'}</span></div>`;
+    if(w===S.deadline&&span>S.deadline) html+='<div class="dl-line"><span>Deadline</span></div>';
+  }
+  if(span===S.deadline) html+='<div class="dl-line"><span>Deadline, end of week 9</span></div>';
+  box.innerHTML=html;
+  const lateUnits=r.weeks.filter(x=>x.w>S.deadline).reduce((a,x)=>a+x.u,0);
+  const sum=$('d-sum');
+  if(last<=S.deadline){sum.className='dlv-sum';sum.innerHTML=`All ${n0(r.started)} shoes ${batch?'shipped':'ship'} by week ${last}${last<S.deadline?`, ${S.deadline-last} week${S.deadline-last>1?'s':''} ahead of the deadline`:', right on the deadline'}.`;}
+  else {sum.className='dlv-sum bad';sum.innerHTML=batch?`${n0(lateUnits)} shoes arrive after week ${S.deadline} and lose price. Add overtime, more workers, or order less.`:`The whole order ships in week ${last}, so every shoe loses ${Math.min(100,S.pen*(last-S.deadline))}% of its price.`;}
+}
+function renderResults(){
+  if(!submitted) return;
+  const S=submitted; const r=model(S);
+  if(!r.valid){
+    $('o-profit').textContent='Line incomplete';$('o-profit').classList.add('neg');
+    ['o-good','o-def','o-week'].forEach(id=>$(id).textContent='–');
+    document.querySelectorAll('.o-line').forEach(el=>el.innerHTML=STATIONS.map((s,i)=>`<div class="st ${r.cap[i]?'':'bn'}"><div class="nm">${s}</div><div class="cap">${r.cap[i]||0}/hr</div><div class="who">${r.cap[i]?r.who[i].join(', '):'Assign a worker here'}</div></div>`).join(''));
+    $('t-break').innerHTML='';$('t-weeks').innerHTML='';return;
+  }
+  $('o-profit').textContent=money(r.profit);
+  $('o-profit').classList.toggle('neg',r.profit<0);
+  $('o-good').textContent=n0(r.good);
+  $('o-def').textContent=((1-r.yieldG)*100).toFixed(1)+'%';
+  const late=r.lastWeek>S.deadline;
+  $('o-week').innerHTML=`<span class="${late?'late':''}">Week ${r.lastWeek}${late?' (late)':''}</span>`;
+  const lineHTML=STATIONS.map((s,i)=>{
+    const bn=r.cap[i]===r.rate;
+    return `<div class="st ${bn?'bn':''}">
+      <div class="nm">${s}</div>
+      <div class="cap">${r.cap[i]}/hr</div>
+      <div class="bar"><i style="width:${Math.round(r.util[i]*100)}%"></i></div>
+      <div class="who">${Math.round(r.util[i]*100)}% busy${bn?' <span class="bn-tag">bottleneck</span>':''}</div>
+      <div class="who">${r.who[i].join(', ')}</div></div>`;
+  }).join('');
+  document.querySelectorAll('.o-line').forEach(el=>el.innerHTML=lineHTML);
+  const rows=[
+    ['Revenue',r.revenue,`${n0(r.good)} good units × $${r.unitPrice.toFixed(2)} (base $${r.basePrice.toFixed(2)} at ${r.quality.toFixed(0)}% quality)${late?', less late penalties':''}`],
+    ['Materials',-r.material,`${S.buying==='jit'?n0(r.started)+' used':n0(r.matQty)+' bought'}${r.unused>0.5?', '+n0(r.unused)+' unused':''}`],
+    ['Regular wages',-r.base,`${r.lastWeek} weeks × ${S.hrs} hrs`],
+    ['Overtime wages',-r.otPay,`up to ${r.ot} hrs/week at ${S.otMult}×`],
+    ['Training',-r.trainCost,''],
+    ['Features',-r.featCost,`price +${r.pctTotal.toFixed(1)}% in total from features, launch and warranty`],
+    ['Launch',-r.launchCost,''],
+    ['Warranty',-r.warrCost,`${S.warranty} month${S.warranty==='6'?'s':''}`],
+    ['Shipping',-r.ship,S.ship==='batch'?'in batches':'all at once'],
+    ['Fixed overhead',-r.fixed,'']
+  ];
+  $('t-break').innerHTML='<tr><th>Item</th><th class="r">Amount</th><th>Detail</th></tr>'+
+    rows.map(x=>`<tr><td>${x[0]}</td><td class="r ${x[1]<0?'neg':''}">${money(x[1])}</td><td class="note">${x[2]}</td></tr>`).join('')+
+    `<tr class="total"><td>Profit</td><td class="r ${r.profit<0?'neg':'pos'}">${money(r.profit)}</td><td></td></tr>`;
+  renderPay(S);
+  $('t-weeks').innerHTML='<tr><th>Week</th><th class="r">Started</th><th class="r">Good</th><th class="r">Price kept</th><th class="r">Revenue</th></tr>'+
+    r.weeks.map(x=>`<tr><td>${x.w}${x.w>S.deadline?' (late)':''}</td><td class="r">${n0(x.u)}</td><td class="r">${n0(x.good)}</td><td class="r ${x.factor<1?'neg':''}">${Math.round(x.factor*100)}%</td><td class="r">${money(x.rev)}</td></tr>`).join('');
+}
+
+/* ---------- per-decision costs (no profit) ---------- */
+function decisionCosts(r){
+  const qty=S.autoMat&&r.valid?r.matQty:Math.min(6000,S.matQty);
+  const unitJ=+S.matCost, unitB=unitJ*(1-S.bulkDisc/100)+ +S.hold;
+  const used=S.workers.filter(w=>w.at!=null&&w.at>=0);
+  const teamHr=used.reduce((a,w)=>a+ +w.wage,0);
+  const train=used.filter(w=>w.train).length*S.trCost;
+  const regWk=teamHr*S.hrs, otWk=teamHr*S.ot*S.otMult;
+  const feats=S.features.filter(f=>f.on);
+  const fUnit=feats.reduce((a,f)=>a+ +f.cost,0);
+  const L=S.launchOpts[S.launch]; const Wr=S.warr[S.warranty];
+  const ship=S.ship==='batch'?S.shipBatch:S.shipOnce;
+  return {qty,unitJ,unitB,mat:S.buying==='bulk'?qty*unitB:qty*unitJ,teamHr,train,regWk,otWk,fUnit,feat:fUnit*qty,launch:+L.cost,warrUnit:+Wr.cost,warr:Wr.cost*qty,ship,fixed:+S.fixed,heads:used.length};
+}
+function renderCosts(r){
+  const c=decisionCosts(r);
+  $('c-mat').innerHTML=S.buying==='bulk'
+    ?`Material bill: <b>${money(c.mat)}</b> (${n0(c.qty)} × $${c.unitB.toFixed(2)} after ${S.bulkDisc}% discount and holding). Paid in full, used or not.`
+    :`Material bill: up to <b>${money(c.mat)}</b> (${n0(c.qty)} × $${c.unitJ.toFixed(2)}). JIT charges only for units you start.`;
+  $('c-team').innerHTML=`Team of ${c.heads}: <b>${money(c.teamHr)}/hr</b>, <b>${money(c.regWk)}</b> per regular week${c.train?`, plus <b>${money(c.train)}</b> training`:''}.`;
+  S.workers.forEach((w,i)=>{const el=$('c-w'+i); if(!el) return; const inc=w.at!=null&&w.at>=0;
+    el.textContent=inc?`${money(w.wage*S.hrs)}/week${w.train?' + '+money(S.trCost)+' training':''}`:'Not on the order';});
+  $('c-sched').innerHTML=`Overtime adds <b>${money(c.otWk)}</b> per week if fully used. Shipping ${S.ship==='batch'?'in batches':'all at once'}: <b>${money(c.ship)}</b>.`;
+  $('c-feat').innerHTML=`Features: <b>$${c.fUnit.toFixed(2)}</b> per shoe, about <b>${money(c.feat)}</b> across ${n0(c.qty)} shoes.`;
+  $('c-launch').innerHTML=`Launch: <b>${money(c.launch)}</b>.`;
+  $('c-warr').innerHTML=`Warranty: <b>$${c.warrUnit.toFixed(2)}</b> per good shoe, up to <b>${money(c.warr)}</b>.`;
+  const rows=[['Materials',c.mat],['Training',c.train],['Features (est.)',c.feat],['Launch',c.launch],['Warranty (up to)',c.warr],['Shipping',c.ship],['Fixed overhead',c.fixed]];
+  const tot=rows.reduce((a,x)=>a+x[1],0);
+  $('t-costs').innerHTML=rows.map(x=>`<tr><td>${x[0]}</td><td class="r">${money(x[1])}</td></tr>`).join('')+
+    `<tr class="total"><td>Before wages</td><td class="r">${money(tot)}</td></tr>`+
+    `<tr><td>Wages, per regular week</td><td class="r">${money(c.regWk)}</td></tr><tr><td>Overtime, per week</td><td class="r">${money(c.otWk)}</td></tr>`;
+}
+
+/* ---------- review & submit ---------- */
+function renderReview(r){
+  const qp=qualityPrice(S);
+  const feats=S.features.filter(f=>f.on).map(f=>f.name).join(', ')||'None';
+  const L=S.launchOpts[S.launch];
+  const workers=S.workers.filter(w=>w.at!=null&&w.at>=0).map(w=>`${w.name}: ${STATIONS[w.at]}${w.train?' (trained)':''}`).join('<br>')||'None';
+  const rows=[
+    ['Material cost',`$${(+S.matCost).toFixed(2)} per unit (${qp.q.toFixed(0)}% quality)`],
+    ['Quantity',S.autoMat?(r.valid?n0(r.matQty)+' (sized to capacity)':'Sized to capacity'):n0(S.matQty)],
+    ['Buying',S.buying==='bulk'?'Bulk via buying group':'JIT'],
+    ['Workers',workers],
+    ['Hours',`${S.hrs} regular + ${S.ot} overtime per week`],
+    ['Shipping',S.ship==='batch'?'In batches':'All at once'],
+    ['Features',feats],
+    ['Launch',L.cost?money(L.cost):'None'],
+    ['Warranty',S.warranty==='6'?'6 months':'1 month']
+  ];
+  $('t-review').innerHTML=rows.map(x=>`<tr><th style="vertical-align:top">${x[0]}</th><td style="white-space:normal">${x[1]}</td></tr>`).join('');
+  $('s-sub').textContent=r.valid?'':'Every station needs at least one worker before you can submit.';
+  $('b-submit').disabled=!r.valid;
+  if(!$('subName').value) $('subName').value='Round '+(scenarios.length+1);
+}
+$('b-submit').onclick=()=>{
+  const r=model(S); if(!r.valid) return;
+  submitted=clone(S); stale=false; $('stale').hidden=true;
+  const label=$('subName').value||('Round '+(scenarios.length+1));
+  scenarios.push({label,profit:r.profit,good:r.good,def:(1-r.yieldG)*100,week:r.lastWeek,q:'$'+S.matCost+' material',b:S.buying,ship:S.ship,ot:S.ot,state:clone(S)});
+  saveScen(); renderScen();
+  $('subName').value='Round '+(scenarios.length+1);
+  $('tab-5').disabled=false;
+  renderResults(); go(5);
+};
+
+/* ---------- optimiser ---------- */
+$('b-opt').onclick=()=>{
+  const st=$('s-opt'); st.textContent='Testing every combination…';
+  setTimeout(()=>{
+    const t=clone(S); t.autoMat=true;
+    const opts=[-1,0,1,2,3]; const n=t.workers.length;
+    const otLevels=[0,5,10,15,20];
+    let best=null;
+    const idx=new Array(n).fill(0);
+    const total=Math.pow(5,n);
+    for(let k=0;k<total;k++){
+      let x=k; for(let i=0;i<n;i++){idx[i]=opts[x%5];x=Math.floor(x/5);}
+      for(const ot of otLevels){
+        const r=model(t,idx,ot);
+        if(r.valid && (!best||r.profit>best.profit)) best={profit:r.profit,at:idx.slice(),ot};
+      }
+    }
+    if(!best){st.textContent='No working setup found. Check that speeds above level 0 are set.';return;}
+    const before=model(S).profit;
+    S.autoMat=true; S.ot=best.ot; S.workers.forEach((w,i)=>w.at=best.at[i]);
+    bindInputs(); update(); $('b-submit').click();
+    st.textContent=`Best setup applied: ${money(best.profit)} profit with ${best.ot} overtime hours per week (was ${isFinite(before)?money(before):'incomplete'}).`;
+  },30);
+};
+
+/* ---------- scenarios ---------- */
+function renderScen(){
+  $('s-empty').style.display=scenarios.length?'none':'block';
+  $('t-scen').innerHTML=scenarios.length?'<tr><th>Scenario</th><th class="r">Profit</th><th class="r">Good units</th><th class="r">Defects</th><th class="r">Done</th><th>Setup</th><th></th></tr>'+
+    scenarios.map((s,i)=>`<tr><td>${s.label}</td><td class="r ${s.profit<0?'neg':''}">${money(s.profit)}</td><td class="r">${n0(s.good)}</td><td class="r">${s.def.toFixed(1)}%</td><td class="r">Wk ${s.week}</td><td class="note">${s.q}, ${s.b}, ${s.ship}, ${s.ot}h OT</td><td><button class="btn ghost" data-l="${i}" style="min-height:36px;padding:.3rem .6rem">Load</button> <button class="btn ghost" data-d="${i}" style="min-height:36px;padding:.3rem .6rem">Delete</button></td></tr>`).join(''):'';
+  $('t-scen').querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{S=clone(scenarios[+b.dataset.l].state);bindInputs();update();go(0);});
+  $('t-scen').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{scenarios.splice(+b.dataset.d,1);saveScen();renderScen();});
+}
+$('b-reset').onclick=()=>{S=Object.assign(clone(DEFAULTS),RULES);bindInputs();update();go(0);$('s-opt').textContent='Defaults restored.';};
+
+function save(){try{localStorage.setItem('ss-plan-v3',JSON.stringify(S));}catch(e){}}
+function saveScen(){try{localStorage.setItem('ss-scen-v3',JSON.stringify(scenarios));}catch(e){}}
+
+function go(i){
+  i=Math.max(0,Math.min(5,i)); if(i===5&&!submitted) i=4;
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',+p.dataset.page===i));
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',+b.dataset.go===i));
+  const tb=$('tab-'+i); if(tb&&tb.scrollIntoView) tb.scrollIntoView({block:'nearest',inline:'center'});
+  try{localStorage.setItem('ss-page',i);}catch(e){}
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>go(+b.dataset.go)));
+let startPage=0; try{startPage=+localStorage.getItem('ss-page')||0;}catch(e){} if(startPage>4) startPage=4;
+bindInputs(); update(); renderScen(); go(startPage);
+</script>
+</body>
+</html>
